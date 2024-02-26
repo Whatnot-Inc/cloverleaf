@@ -513,19 +513,25 @@ impl RandomWalker {
             return Err(PyValueError::new_err("Alpha must be between [0, inf)"))
         };
 
-        let rwr = RWR {
-            steps: steps,
-            walks: self.walks,
-            beta: self.beta.unwrap_or(0.5),
-            single_threaded: single_threaded.unwrap_or(false),
-            seed: seed.unwrap_or(SEED)
-        };
+        let gref = graph.graph.as_ref();
 
-        let results = if weighted.unwrap_or(true) {
-            rwr.sample_bfs(graph.graph.as_ref(), node_id)
-        } else {
-            rwr.sample(graph.graph.as_ref(), &Unweighted, node_id)
-        };
+        // Releases gil for threadpooling
+        let results = Python::with_gil(|py| {
+            py.allow_threads(move || {
+                let rwr = RWR {
+                    steps: steps,
+                    walks: self.walks,
+                    beta: self.beta.unwrap_or(0.5),
+                    single_threaded: single_threaded.unwrap_or(false),
+                    seed: seed.unwrap_or(SEED)
+                };
+                 if weighted.unwrap_or(true) {
+                    rwr.sample_bfs(gref, node_id)
+                } else {
+                    rwr.sample(gref, &Unweighted, node_id)
+                }
+            })
+        });
 
         Ok(convert_scores(&graph.vocab, results.into_iter(), k, filter_type))
     }
